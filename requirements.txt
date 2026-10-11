@@ -1,5 +1,6 @@
 Plaintext
 
 streamlit
-garminconnect
 pandas
+garth
+garminconnect

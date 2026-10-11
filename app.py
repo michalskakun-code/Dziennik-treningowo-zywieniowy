@@ -1,21 +1,29 @@
 import streamlit as st
 import pandas as pd
-from garminconnect import Garmin
 from datetime import date, timedelta
 import json
 import os
 
+try:
+    from garminconnect import Garmin, GarminConnectTooManyRequestsError
+except ImportError:
+    Garmin = None
+
 st.set_page_config(page_title="Dziennik Treningowy - Kraków 2027", layout="wide")
 
-# Pliki do zapisu danych
 SILOWNIA_FILE = "silownia_db.json"
 FITATU_FILE = "fitatu_db.json"
 
-def load_json(filepath):
+def load_json(filepath, default_val):
     if os.path.exists(filepath):
-        with open(filepath, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, type(default_val)):
+                    return data
+        except Exception:
+            pass
+    return default_val
 
 def save_json(filepath, data):
     with open(filepath, "w", encoding="utf-8") as f:
@@ -23,7 +31,7 @@ def save_json(filepath, data):
 
 st.title("🏃‍♂️ Dziennik Treningowy: Droga do Maratonu w Krakowie")
 
-tab1, tab2, tab3, tab4 = st.tabs(["🏋️‍♂️ Siłownia", "⌚ Garmin", "🥗 Fitatu", "📋 Generator Raportu"])
+tab1, tab2, tab3, tab4 = st.tabs(["🏋️‍♂️ Siłownia", "Garmin", "🥗 Fitatu", "📋 Generator Raportu"])
 
 # --- ZAKŁADKA 1: SIŁOWNIA ---
 with tab1:
@@ -51,7 +59,7 @@ with tab1:
             
     if st.button("Zapisz ćwiczenie na siłowni"):
         if cwiczenie.strip():
-            db_silownia = load_json(SILOWNIA_FILE)
+            db_silownia = load_json(SILOWNIA_FILE, [])
             if not isinstance(db_silownia, list):
                 db_silownia = []
                 
@@ -66,17 +74,20 @@ with tab1:
             st.warning("Wpisz nazwę ćwiczenia.")
 
     st.subheader("Historia treningów siłowych")
-    db_silownia = load_json(SILOWNIA_FILE)
+    db_silownia = load_json(SILOWNIA_FILE, [])
     if isinstance(db_silownia, list) and db_silownia:
         for entry in reversed(db_silownia):
-            serie_str = ", ".join([f"S{s['seria']}: {s['powt']}x{s['ciezar']}kg" for s in entry['serie']])
-            st.markdown(f"- **{entry['data']}** | **{entry['cwiczenie']}** $\rightarrow$ {serie_str}")
+            if isinstance(entry, dict) and "serie" in entry:
+                serie_list = entry.get("serie", [])
+                serie_str = ", ".join([f"S{s.get('seria', 1)}: {s.get('powt', 0)}x{s.get('ciezar', 0)}kg" for s in serie_list if isinstance(s, dict)])
+                st.markdown(f"- **{entry.get('data', '')}** | **{entry.get('cwiczenie', '')}** $\rightarrow$ {serie_str}")
     else:
         st.info("Brak wpisów w historii siłowni.")
 
 # --- ZAKŁADKA 2: GARMIN ---
 with tab2:
     st.header("Synchronizacja z Garmin Connect")
+    st.info("⚠️ Uwaga: Garmin czasami blokuje zbyt częste próby logowania (błąd 429). Jeśli zobaczysz komunikat o tym błędzie, odczekaj kilkanaście minut przed kolejną próbą.")
     
     with st.form("garmin_form"):
         col_g1, col_g2 = st.columns(2)
@@ -87,20 +98,23 @@ with tab2:
         submit_garmin = st.form_submit_button("Synchronizuj biegi i aktywności")
 
     if submit_garmin and email and password:
-        try:
-            client = Garmin(email, password)
-            client.login()
-            st.success("Połączono z Garmin Connect!")
-            
-            today = date.today()
-            start_date = today - timedelta(days=7)
-            activities = client.get_activities_by_date(start_date.isoformat(), today.isoformat(), "")
-            
-            st.session_state["garmin_activities"] = activities
-            st.success(f"Pobrano {len(activities)} aktywności z ostatnich 7 dni.")
-            
-        except Exception as e:
-            st.error(f"Błąd logowania do Garmina: {e}")
+        if Garmin is None:
+            st.error("Biblioteka garminconnect nie jest zainstalowana.")
+        else:
+            try:
+                client = Garmin(email, password)
+                client.login()
+                st.success("Połączono z Garmin Connect!")
+                
+                today = date.today()
+                start_date = today - timedelta(days=7)
+                activities = client.get_activities_by_date(start_date.isoformat(), today.isoformat(), "")
+                
+                st.session_state["garmin_activities"] = activities
+                st.success(f"Pobrano {len(activities)} aktywności z ostatnich 7 dni.")
+                
+            except Exception as e:
+                st.error(f"Błąd logowania do Garmina (możliwy limit zapytań 429): {e}")
 
     st.subheader("Pobrane treningi z Garmina (Ostatnie 7 dni)")
     garmin_acts = st.session_state.get("garmin_activities", [])
@@ -115,7 +129,7 @@ with tab2:
                 "Czas (min)": round(act.get("duration", 0) / 60, 1),
                 "Śr. Tętno": act.get("averageHR", "-")
             })
-        st.dataframe(pd.DataFrame(acts_data), use_container_width=True)
+        st.dataframe(pd.DataFrame(acts_data), width="stretch")
     else:
         st.info("Brak synchronizowanych aktywności. Zaloguj się powyżej.")
 
@@ -124,7 +138,7 @@ with tab3:
     st.header("Żywienie i Kalorie (Fitatu)")
     
     dni_tygodnia = ["Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela"]
-    fitatu_db = load_json(FITATU_FILE)
+    fitatu_db = load_json(FITATU_FILE, {})
     if not isinstance(fitatu_db, dict):
         fitatu_db = {}
         
@@ -152,7 +166,7 @@ with tab3:
     st.subheader("Podsumowanie tygodnia (Fitatu)")
     if fitatu_db:
         df_f = pd.DataFrame.from_dict(fitatu_db, orient="index")
-        st.dataframe(df_f, use_container_width=True)
+        st.dataframe(df_f, width="stretch")
 
 # --- ZAKŁADKA 4: GENERATOR RAPORTU ---
 with tab4:
@@ -160,8 +174,8 @@ with tab4:
     st.write("Skopiuj poniższy tekst i wklej go na czacie.")
     
     if st.button("Generuj Raport dla Gemini"):
-        db_silownia = load_json(SILOWNIA_FILE)
-        fitatu_db = load_json(FITATU_FILE)
+        db_silownia = load_json(SILOWNIA_FILE, [])
+        fitatu_db = load_json(FITATU_FILE, {})
         garmin_acts = st.session_state.get("garmin_activities", [])
         
         raport = "=== PODSUMOWANIE TYGODNIA ===\n\n"
@@ -169,8 +183,10 @@ with tab4:
         raport += "1. SIŁOWNIA:\n"
         if isinstance(db_silownia, list) and db_silownia:
             for item in db_silownia[-10:]:
-                serie_str = ", ".join([f"S{s['seria']}: {s['powt']}x{s['ciezar']}kg" for s in item['serie']])
-                raport += f"- {item['data']} | {item['cwiczenie']}: {serie_str}\n"
+                if isinstance(item, dict):
+                    serie_list = item.get("serie", [])
+                    serie_str = ", ".join([f"S{s.get('seria', 1)}: {s.get('powt', 0)}x{s.get('ciezar', 0)}kg" for s in serie_list if isinstance(s, dict)])
+                    raport += f"- {item.get('data', '')} | {item.get('cwiczenie', '')}: {serie_str}\n"
         else:
             raport += "Brak wpisów z siłowni.\n"
             
@@ -188,7 +204,8 @@ with tab4:
         raport += "\n3. FITATU (Dieta i Kalorie):\n"
         if isinstance(fitatu_db, dict) and fitatu_db:
             for dzien, d in fitatu_db.items():
-                raport += f"- {dzien}: {d.get('kcal')} kcal (B: {d.get('b')}g, T: {d.get('t')}g, W: {d.get('w')}g) | Spalone: {d.get('spalone')} kcal\n"
+                if isinstance(d, dict):
+                    raport += f"- {dzien}: {d.get('kcal')} kcal (B: {d.get('b')}g, T: {d.get('t')}g, W: {d.get('w')}g) | Spalone: {d.get('spalone')} kcal\n"
         else:
             raport += "Brak wpisów w Fitatu.\n"
             

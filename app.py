@@ -42,6 +42,14 @@ def format_czas(sekundy):
     else:
         return f"{s}s"
 
+def m_s_to_pace(m_s):
+    if not m_s or m_s <= 0:
+        return "-"
+    sec_per_km = 1000 / m_s
+    m = int(sec_per_km // 60)
+    s = int(sec_per_km % 60)
+    return f"{m}:{s:02d} min/km"
+
 st.title("🏃‍♂️ Dziennik Treningowy: Droga do Maratonu w Krakowie")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏋️‍♂️ Siłownia", "Garmin", "🥗 Fitatu", "📋 Generator Raportu", "📊 Omówienie tygodnia"])
@@ -212,14 +220,53 @@ with tab2:
                 with c_a3:
                     st.metric("Spalone Kalorie", f"{kcal} kcal")
                     
-                # Pobieranie szczegółów (kadencja, kroki itp.) na żądanie
                 if client and aid:
-                    if st.button(f"Pobierz szczegóły / strefy dla tej aktywności", key=f"det_{aid}"):
+                    if st.button(f"Pobierz wykresy i okrążenia", key=f"det_{aid}"):
                         try:
-                            details = client.get_activity_details(aid)
-                            st.json(details) # Wyświetla pełny strukturalny raport ze szczegółami z Garmina
+                            splits_data = client.get_activity_splits(aid)
+                            laps = []
+                            if isinstance(splits_data, dict):
+                                lap_list = splits_data.get("lapDTOs", [])
+                            elif isinstance(splits_data, list):
+                                lap_list = splits_data
+                            else:
+                                lap_list = []
+                            
+                            for i, lap in enumerate(lap_list):
+                                dist_m = lap.get("distance", 0)
+                                dist_km = round(dist_m / 1000, 2)
+                                duration_s = lap.get("duration", 0)
+                                avg_speed = lap.get("averageSpeed", 0)
+                                avg_hr = lap.get("averageHR", 0)
+                                pace_str = m_s_to_pace(avg_speed)
+                                
+                                # Obliczenie wartości tempa w min/km (dla wykresów - sekundy na km)
+                                pace_sec = (1000 / avg_speed) if avg_speed > 0 else 0
+                                
+                                laps.append({
+                                    "Okrążenie": i + 1,
+                                    "Dystans (km)": dist_km,
+                                    "Czas": format_czas(duration_s),
+                                    "Tempo": pace_str,
+                                    "Śr. Tętno": avg_hr,
+                                    "Tempo_sec": pace_sec
+                                })
+                            
+                            if laps:
+                                df_laps = pd.DataFrame(laps)
+                                st.subheader("Tabela okrążeń (Splits)")
+                                st.dataframe(df_laps.drop(columns=["Tempo_sec"]), width="stretch")
+                                
+                                st.subheader("📈 Wykres tętna na okrążeniach")
+                                st.line_chart(df_laps.set_index("Okrążenie")["Śr. Tętno"])
+                                
+                                st.subheader("📈 Wykres tempa na okrążeniach (sek./km)")
+                                st.line_chart(df_laps.set_index("Okrążenie")["Tempo_sec"])
+                            else:
+                                st.info("Brak danych o okrążeniach dla tej aktywności.")
+                                
                         except Exception as ex:
-                            st.error(f"Nie udało się pobrać szczegółów: {ex}")
+                            st.error(f"Nie udało się pobrać okrążeń: {ex}")
     else:
         st.info("Brak synchronizowanych aktywności. Zaloguj się powyżej.")
 

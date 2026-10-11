@@ -292,7 +292,14 @@ with tab6:
     
     if gemini_key and genai is not None:
         genai.configure(api_key=gemini_key)
-        model = genai.GenerativeModel('gemini-pro')
+        
+        # Automatyczne pobranie dostępnego modelu obsługującego generowanie treści
+        try:
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            chosen_model = available_models[0] if available_models else 'gemini-1.5-flash'
+            model = genai.GenerativeModel(chosen_model)
+        except Exception:
+            model = genai.GenerativeModel('gemini-1.5-flash')
         
         if "chat_history" not in st.session_state:
             st.session_state["chat_history"] = []
@@ -312,7 +319,6 @@ with tab6:
                         db_s = load_json(SILOWNIA_FILE, [])
                         db_f = load_json(FITATU_FILE, {})
                         
-                        # Bezpieczne wyciąganie kluczy lub informacji o typie
                         if isinstance(db_f, dict):
                             fitatu_info = f"wpisy dla dni: {list(db_f.keys())}"
                         else:

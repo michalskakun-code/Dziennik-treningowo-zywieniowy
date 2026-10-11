@@ -293,46 +293,5 @@ with tab6:
     if gemini_key and genai is not None:
         genai.configure(api_key=gemini_key)
         
-        # Automatyczne pobranie dostępnego modelu obsługującego generowanie treści
-        try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            chosen_model = available_models[0] if available_models else 'gemini-1.5-flash'
-            model = genai.GenerativeModel(chosen_model)
-        except Exception:
-            model = genai.GenerativeModel('gemini-1.5-flash')
-        
-        if "chat_history" not in st.session_state:
-            st.session_state["chat_history"] = []
-            
-        for message in st.session_state["chat_history"]:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-                    
-        if user_prompt := st.chat_input("Napisz do swojego trenera..."):
-            st.session_state["chat_history"].append({"role": "user", "content": user_prompt})
-            with st.chat_message("user"):
-                st.markdown(user_prompt)
-                    
-            with st.chat_message("assistant"):
-                with st.spinner("Trener analizuje..."):
-                    try:
-                        db_s = load_json(SILOWNIA_FILE, [])
-                        db_f = load_json(FITATU_FILE, {})
-                        
-                        if isinstance(db_f, dict):
-                            fitatu_info = f"wpisy dla dni: {list(db_f.keys())}"
-                        else:
-                            fitatu_info = "brak struktury słownika"
-                            
-                        context_str = f"Oto aktualny stan danych użytkownika w dzienniku: Siłownia wpisy: {len(db_s)} treningów. Fitatu {fitatu_info}."
-                        
-                        full_prompt = f"{context_str}\n\nPytanie użytkownika: {user_prompt}"
-                        response = model.generate_content(full_prompt)
-                        bot_reply = response.text
-                        
-                        st.markdown(bot_reply)
-                        st.session_state["chat_history"].append({"role": "assistant", "content": bot_reply})
-                    except Exception as e:
-                        st.error(f"Błąd generowania odpowiedzi przez Gemini: {e}")
-    else:
-        st.info("💡 Wprowadź klucz API, aby aktywować czat.")
+        # Użycie najnowszego stabilnego modelu sugerowanego przez API
+        model = genai.GenerativeModel('gemini-3.8-flash')

@@ -18,8 +18,6 @@ st.set_page_config(page_title="Dziennik Treningowy - Kraków 2027", layout="wide
 
 SILOWNIA_FILE = "silownia_db.json"
 FITATU_FILE = "fitatu_db.json"
-FIT_FILE = FITATU_FILE
-FITAT_FILE = FITATU_FILE
 
 def load_json(filepath, default_val):
     if os.path.exists(filepath):
@@ -226,10 +224,14 @@ with tab3:
     st.header("Żywienie, Waga i Kalorie (Fitatu)")
     dni_tygodnia = ["Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela"]
     fitatu_db = load_json(FITATU_FILE, {})
+    if not isinstance(fitatu_db, dict):
+        fitatu_db = {}
     updated_fitatu = {}
     for dzien in dni_tygodnia:
         st.subheader(dzien)
         dane_dnia = fitatu_db.get(dzien, {"kcal": 2300, "b": 170, "t": 75, "w": 235, "spalone": 0, "waga": 84.7, "godzina": "07:00"})
+        if not isinstance(dane_dnia, dict):
+            dane_dnia = {"kcal": 2300, "b": 170, "t": 75, "w": 235, "spalone": 0, "waga": 84.7, "godzina": "07:00"}
         c01, c02, c1, c2, c3, c4, c5 = st.columns(7)
         with c01:
             waga = st.number_input("Waga (kg)", min_value=40.0, max_value=150.0, value=float(dane_dnia.get("waga", 84.7)), step=0.1, key=f"f_waga_{dzien}")
@@ -260,17 +262,20 @@ with tab4:
         garmin_acts = st.session_state.get("garmin_activities", [])
         
         raport = "=== PODSUMOWANIE TYGODNIA ===\n\n1. SIŁOWNIA:\n"
-        for item in db_silownia:
-            serie_str = ", ".join([f"S{s.get('seria', 1)}: {s.get('powt', 0)}x{s.get('ciezar', 0)}kg" for s in item.get("serie", [])])
-            raport += f"- {item.get('data')} | {item.get('cwiczenie')}: {serie_str}\n"
+        if isinstance(db_silownia, list):
+            for item in db_silownia:
+                serie_str = ", ".join([f"S{s.get('seria', 1)}: {s.get('powt', 0)}x{s.get('ciezar', 0)}kg" for s in item.get("serie", [])])
+                raport += f"- {item.get('data')} | {item.get('cwiczenie')}: {serie_str}\n"
             
         raport += "\n2. GARMIN:\n"
         for act in garmin_acts:
             raport += f"- {act.get('startTimeLocal', '')[:10]} | {act.get('activityName')} | Dystans: {round(act.get('distance', 0)/1000, 2)} km | Czas: {format_czas(act.get('duration', 0))} | Śr HR: {act.get('averageHR')}\n"
             
         raport += "\n3. FITATU I WAGA:\n"
-        for dzien, d in fitatu_db.items():
-            raport += f"- {dzien}: Waga: {d.get('waga')} kg | {d.get('kcal')} kcal (B:{d.get('b')}g, T:{d.get('t')}g, W:{d.get('w')}g)\n"
+        if isinstance(fitatu_db, dict):
+            for dzien, d in fitatu_db.items():
+                if isinstance(d, dict):
+                    raport += f"- {dzien}: Waga: {d.get('waga')} kg | {d.get('kcal')} kcal (B:{d.get('b')}g, T:{d.get('t')}g, W:{d.get('w')}g)\n"
             
         st.text_area("Skopiuj raport:", raport, height=300)
 
@@ -287,7 +292,6 @@ with tab6:
     
     if gemini_key and genai is not None:
         genai.configure(api_key=gemini_key)
-        # Używamy uniwersalnego modelu gemini-pro w pełni wspieranego w darmowym planie
         model = genai.GenerativeModel('gemini-pro')
         
         if "chat_history" not in st.session_state:
@@ -306,8 +310,15 @@ with tab6:
                 with st.spinner("Trener analizuje..."):
                     try:
                         db_s = load_json(SILOWNIA_FILE, [])
-                        db_f = load_json(FITATU_FILE, [])
-                        context_str = f"Oto aktualny stan danych użytkownika w dzienniku: Siłownia wpisy: {len(db_s)} treningów. Fitatu wpisy z wagi/diety dla dni: {list(db_f.keys())}."
+                        db_f = load_json(FITATU_FILE, {})
+                        
+                        # Bezpieczne wyciąganie kluczy lub informacji o typie
+                        if isinstance(db_f, dict):
+                            fitatu_info = f"wpisy dla dni: {list(db_f.keys())}"
+                        else:
+                            fitatu_info = "brak struktury słownika"
+                            
+                        context_str = f"Oto aktualny stan danych użytkownika w dzienniku: Siłownia wpisy: {len(db_s)} treningów. Fitatu {fitatu_info}."
                         
                         full_prompt = f"{context_str}\n\nPytanie użytkownika: {user_prompt}"
                         response = model.generate_content(full_prompt)

@@ -5,7 +5,7 @@ import json
 import os
 
 try:
-    from garminconnect import Garmin, GarminConnectTooManyRequestsError
+    from garminconnect import Garmin
 except ImportError:
     Garmin = None
 
@@ -29,9 +29,22 @@ def save_json(filepath, data):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+def format_czas(sekundy):
+    if not sekundy:
+        return "0s"
+    h = int(sekundy // 3600)
+    m = int((sekundy % 3600) // 60)
+    s = int(sekundy % 60)
+    if h > 0:
+        return f"{h}h {m}m {s}s"
+    elif m > 0:
+        return f"{m}m {s}s"
+    else:
+        return f"{s}s"
+
 st.title("🏃‍♂️ Dziennik Treningowy: Droga do Maratonu w Krakowie")
 
-tab1, tab2, tab3, tab4 = st.tabs(["🏋️‍♂️ Siłownia", "Garmin", "🥗 Fitatu", "📋 Generator Raportu"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏋️‍♂️ Siłownia", "Garmin", "🥗 Fitatu", "📋 Generator Raportu", "📊 Omówienie tygodnia"])
 
 # --- ZAKŁADKA 1: SIŁOWNIA ---
 with tab1:
@@ -70,24 +83,33 @@ with tab1:
             })
             save_json(SILOWNIA_FILE, db_silownia)
             st.success(f"Dodano {cwiczenie} do dziennika!")
+            st.rerun()
         else:
             st.warning("Wpisz nazwę ćwiczenia.")
 
-    st.subheader("Historia treningów siłowych")
+    st.subheader("Historia i zarządzanie treningami siłowymi")
     db_silownia = load_json(SILOWNIA_FILE, [])
     if isinstance(db_silownia, list) and db_silownia:
-        for entry in reversed(db_silownia):
+        for idx, entry in enumerate(db_silownia):
             if isinstance(entry, dict) and "serie" in entry:
                 serie_list = entry.get("serie", [])
                 serie_str = ", ".join([f"S{s.get('seria', 1)}: {s.get('powt', 0)}x{s.get('ciezar', 0)}kg" for s in serie_list if isinstance(s, dict)])
-                st.markdown(f"- **{entry.get('data', '')}** | **{entry.get('cwiczenie', '')}** $\rightarrow$ {serie_str}")
+                
+                col_e1, col_e2 = st.columns([5, 1])
+                with col_e1:
+                    st.markdown(f"- **{entry.get('data', '')}** | **{entry.get('cwiczenie', '')}** $\rightarrow$ {serie_str}")
+                with col_e2:
+                    if st.button("Usuń", key=f"del_sil_{idx}"):
+                        db_silownia.pop(idx)
+                        save_json(SILOWNIA_FILE, db_silownia)
+                        st.rerun()
     else:
         st.info("Brak wpisów w historii siłowni.")
 
 # --- ZAKŁADKA 2: GARMIN ---
 with tab2:
     st.header("Synchronizacja z Garmin Connect")
-    st.info("⚠️ Uwaga: Garmin czasami blokuje zbyt częste próby logowania (błąd 429). Jeśli zobaczysz komunikat o tym błędzie, odczekaj kilkanaście minut przed kolejną próbą.")
+    st.info("⚠️ Uwaga: Garmin czasami blokuje zbyt częste próby logowania (błąd 429). Jeśli zobaczysz taki komunikat, odczekaj kilkanaście minut.")
     
     with st.form("garmin_form"):
         col_g1, col_g2 = st.columns(2)
@@ -114,19 +136,20 @@ with tab2:
                 st.success(f"Pobrano {len(activities)} aktywności z ostatnich 7 dni.")
                 
             except Exception as e:
-                st.error(f"Błąd logowania do Garmina (możliwy limit zapytań 429): {e}")
+                st.error(f"Błąd logowania do Garmina: {e}")
 
     st.subheader("Pobrane treningi z Garmina (Ostatnie 7 dni)")
     garmin_acts = st.session_state.get("garmin_activities", [])
     if garmin_acts:
         acts_data = []
         for act in garmin_acts:
+            duration_sec = act.get("duration", 0)
             acts_data.append({
                 "Data": act.get("startTimeLocal", "")[:10],
                 "Nazwa": act.get("activityName", "Aktywność"),
                 "Typ": act.get("activityType", {}).get("typeKey", ""),
                 "Dystans (km)": round(act.get("distance", 0) / 1000, 2),
-                "Czas (min)": round(act.get("duration", 0) / 60, 1),
+                "Czas trwania": format_czas(duration_sec),
                 "Śr. Tętno": act.get("averageHR", "-")
             })
         st.dataframe(pd.DataFrame(acts_data), width="stretch")
@@ -135,45 +158,43 @@ with tab2:
 
 # --- ZAKŁADKA 3: FITATU ---
 with tab3:
-    st.header("Żywienie i Kalorie (Fitatu)")
+    st.header("Żywienie i Kalorie (Fitatu) – Cały tydzień")
     
     dni_tygodnia = ["Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela"]
     fitatu_db = load_json(FITATU_FILE, {})
     if not isinstance(fitatu_db, dict):
         fitatu_db = {}
         
-    wybrany_dzien = st.selectbox("Wybierz dzień tygodnia", dni_tygodnia)
-    dane_dnia = fitatu_db.get(wybrany_dzien, {"kcal": 2300, "b": 170, "t": 75, "w": 235, "spalone": 0})
-    
-    st.subheader(f"Wprowadź dane dla: {wybrany_dzien}")
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        kcal = st.number_input("Zjedzone Kcal", min_value=0, value=int(dane_dnia.get("kcal", 2300)), key=f"f_kcal_{wybrany_dzien}")
-    with c2:
-        b = st.number_input("Białko (g)", min_value=0, value=int(dane_dnia.get("b", 170)), key=f"f_b_{wybrany_dzien}")
-    with c3:
-        t = st.number_input("Tłuszcze (g)", min_value=0, value=int(dane_dnia.get("t", 75)), key=f"f_t_{wybrany_dzien}")
-    with c4:
-        w = st.number_input("Węgle (g)", min_value=0, value=int(dane_dnia.get("w", 235)), key=f"f_w_{wybrany_dzien}")
-    with c5:
-        spalone = st.number_input("Spalone Kcal", min_value=0, value=int(dane_dnia.get("spalone", 0)), key=f"f_sp_{wybrany_dzien}")
+    updated_fitatu = {}
+    for dzien in dni_tygodnia:
+        st.subheader(dzien)
+        dane_dnia = fitatu_db.get(dzien, {"kcal": 2300, "b": 170, "t": 75, "w": 235, "spalone": 0})
         
-    if st.button(f"Zapisz {wybrany_dzien}"):
-        fitatu_db[wybrany_dzien] = {"kcal": kcal, "b": b, "t": t, "w": w, "spalone": spalone}
-        save_json(FITATU_FILE, fitatu_db)
-        st.success(f"Zapisano dane dla dnia {wybrany_dzien}!")
-
-    st.subheader("Podsumowanie tygodnia (Fitatu)")
-    if fitatu_db:
-        df_f = pd.DataFrame.from_dict(fitatu_db, orient="index")
-        st.dataframe(df_f, width="stretch")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        with c1:
+            kcal = st.number_input("Zjedzone Kcal", min_value=0, value=int(dane_dnia.get("kcal", 2300)), key=f"f_kcal_{dzien}")
+        with c2:
+            b = st.number_input("Białko (g)", min_value=0, value=int(dane_dnia.get("b", 170)), key=f"f_b_{dzien}")
+        with c3:
+            t = st.number_input("Tłuszcze (g)", min_value=0, value=int(dane_dnia.get("t", 75)), key=f"f_t_{dzien}")
+        with c4:
+            w = st.number_input("Węgle (g)", min_value=0, value=int(dane_dnia.get("w", 235)), key=f"f_w_{dzien}")
+        with c5:
+            spalone = st.number_input("Spalone Kcal", min_value=0, value=int(dane_dnia.get("spalone", 0)), key=f"f_sp_{dzien}")
+            
+        updated_fitatu[dzien] = {"kcal": kcal, "b": b, "t": t, "w": w, "spalone": spalone}
+        st.write("---")
+        
+    if st.button("Zapisz wszystkie dni Fitatu"):
+        save_json(FITATU_FILE, updated_fitatu)
+        st.success("Zapisano dane Fitatu dla całego tygodnia!")
 
 # --- ZAKŁADKA 4: GENERATOR RAPORTU ---
 with tab4:
     st.header("Wygeneruj raport tygodniowy")
-    st.write("Skopiuj poniższy tekst i wklej go na czacie.")
+    st.write("Kliknij przycisk, skopiuj poniższy tekst i wklej go w zakładce 'Omówienie tygodnia' lub bezpośrednio na czacie.")
     
-    if st.button("Generuj Raport dla Gemini"):
+    if st.button("Generuj Raport"):
         db_silownia = load_json(SILOWNIA_FILE, [])
         fitatu_db = load_json(FITATU_FILE, {})
         garmin_acts = st.session_state.get("garmin_activities", [])
@@ -182,7 +203,7 @@ with tab4:
         
         raport += "1. SIŁOWNIA:\n"
         if isinstance(db_silownia, list) and db_silownia:
-            for item in db_silownia[-10:]:
+            for item in db_silownia:
                 if isinstance(item, dict):
                     serie_list = item.get("serie", [])
                     serie_str = ", ".join([f"S{s.get('seria', 1)}: {s.get('powt', 0)}x{s.get('ciezar', 0)}kg" for s in serie_list if isinstance(s, dict)])
@@ -195,9 +216,9 @@ with tab4:
             for act in garmin_acts:
                 nazwa = act.get("activityName", "Aktywność")
                 dystans = round(act.get("distance", 0) / 1000, 2)
-                czas = round(act.get("duration", 0) / 60, 1)
+                czas_str = format_czas(act.get("duration", 0))
                 hr = act.get("averageHR", "-")
-                raport += f"- {act.get('startTimeLocal', '')[:10]} | {nazwa} | Dystans: {dystans} km | Czas: {czas} min | HR: {hr}\n"
+                raport += f"- {act.get('startTimeLocal', '')[:10]} | {nazwa} | Dystans: {dystans} km | Czas: {czas_str} | HR: {hr}\n"
         else:
             raport += "Brak pobranych aktywności z Garmina.\n"
             
@@ -210,3 +231,12 @@ with tab4:
             raport += "Brak wpisów w Fitatu.\n"
             
         st.text_area("Gotowy raport (skopiuj całość):", raport, height=300)
+
+# --- ZAKŁADKA 5: OMÓWIENIE TYGODNIA ---
+with tab5:
+    st.header("Omówienie i Analiza Tygodnia")
+    st.write("Wklej tutaj wygenerowany raport lub swoje notatki z minionego tygodnia, abyśmy mogli wspólnie przeanalizować postępy i zaplanować kolejny krok.")
+    
+    notatki = st.text_area("Wklej raport / notatki do omówienia:", height=250)
+    if notatki:
+        st.success("Raport gotowy do omówienia! Wklej go teraz tutaj na czacie, a przeanalizujemy go punkt po punkcie.")

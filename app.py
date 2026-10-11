@@ -223,7 +223,7 @@ with tab2:
 with tab3:
     st.header("Żywienie, Waga i Kalorie (Fitatu)")
     dni_tygodnia = ["Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela"]
-    fitatu_db = load_json(FITATU_FILE, {})
+    fitatu_db = load_json(FITAT_FILE, {})
     updated_fitatu = {}
     for dzien in dni_tygodnia:
         st.subheader(dzien)
@@ -286,18 +286,16 @@ with tab6:
     if gemini_key and genai is not None:
         genai.configure(api_key=gemini_key)
         
-        # Używamy modelu flash (szybki i darmowy w limitach)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Zmieniono nazwę na model kompatybilny z v1 / najnowszymi endpointami
+        model = genai.GenerativeModel('gemini-1.5-pro')
         
         if "chat_history" not in st.session_state:
             st.session_state["chat_history"] = []
             
-        # Wyświetlanie historii czatu
         for message in st.session_state["chat_history"]:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
                 
-        # Pole wpisywania wiadomości
         if user_prompt := st.chat_input("Napisz do swojego trenera..."):
             st.session_state["chat_history"].append({"role": "user", "content": user_prompt})
             with st.chat_message("user"):
@@ -306,10 +304,9 @@ with tab6:
             with st.chat_message("assistant"):
                 with st.spinner("Trener analizuje..."):
                     try:
-                        # Możemy dokleić automatyczny kontekst z bazy aplikacji, żeby Gemini wiedział wszystko!
                         db_s = load_json(SILOWNIA_FILE, [])
                         db_f = load_json(FITATU_FILE, {})
-                        context_str = f"Oto aktualny stan danych użytkownika: Siłownia wpisy: {len(db_s)} treningów. Fitatu wpisy z wagi/diety dla dni: {list(db_f.keys())}."
+                        context_str = f"Oto aktualny stan danych użytkownika w dzienniku: Siłownia wpisy: {len(db_s)} treningów. Fitatu wpisy z wagi/diety dla dni: {list(db_f.keys())}."
                         
                         full_prompt = f"{context_str}\n\nPytanie użytkownika: {user_prompt}"
                         response = model.generate_content(full_prompt)
@@ -320,4 +317,4 @@ with tab6:
                     except Exception as e:
                         st.error(f"Błąd generowania odpowiedzi przez Gemini: {e}")
     else:
-        st.info("💡 Aby aktywować czat, wprowadź swój klucz API. Możesz go uzyskać całkowicie za darmo w kilka sekund na stronie [Google AI Studio](https://aistudio.google.com/).")
+        st.info("💡 Wprowadź klucz API, aby aktywować czat.")

@@ -9,6 +9,11 @@ try:
 except ImportError:
     Garmin = None
 
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
+
 st.set_page_config(page_title="Dziennik Treningowy - Kraków 2027", layout="wide")
 
 SILOWNIA_FILE = "silownia_db.json"
@@ -52,12 +57,11 @@ def m_s_to_pace(m_s):
 
 st.title("🏃‍♂️ Dziennik Treningowy: Droga do Maratonu w Krakowie")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏋️‍♂️ Siłownia", "Garmin", "🥗 Fitatu", "📋 Generator Raportu", "📊 Omówienie tygodnia"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏋️‍♂️ Siłownia", "Garmin", "🥗 Fitatu", "📋 Generator Raportu", "📊 Omówienie", "🤖 Gemini"])
 
 # --- ZAKŁADKA 1: SIŁOWNIA ---
 with tab1:
     st.header("Zapisz trening siłowy")
-    
     db_silownia = load_json(SILOWNIA_FILE, [])
     if "edit_idx" not in st.session_state:
         st.session_state["edit_idx"] = None
@@ -66,11 +70,9 @@ with tab1:
     if editing_index is not None and 0 <= editing_index < len(db_silownia):
         st.info(f"Edytujesz wpis z dnia: {db_silownia[editing_index].get('data')}")
         item_to_edit = db_silownia[editing_index]
-        
         ed_data = st.date_input("Data (edycja)", value=date.fromisoformat(item_to_edit.get("data", str(date.today()))), key="ed_data")
         ed_cwiczenie = st.text_input("Nazwa ćwiczenia (edycja)", value=item_to_edit.get("cwiczenie", ""), key="ed_cw")
         
-        st.write("Skoryguj serie:")
         ed_serie = []
         old_serie = item_to_edit.get("serie", [])
         for i, s in enumerate(old_serie):
@@ -84,11 +86,7 @@ with tab1:
         col_act1, col_act2 = st.columns(2)
         with col_act1:
             if st.button("Zapisz zmiany"):
-                db_silownia[editing_index] = {
-                    "data": str(ed_data),
-                    "cwiczenie": ed_cwiczenie,
-                    "serie": ed_serie
-                }
+                db_silownia[editing_index] = {"data": str(ed_data), "cwiczenie": ed_cwiczenie, "serie": ed_serie}
                 save_json(SILOWNIA_FILE, db_silownia)
                 st.session_state["edit_idx"] = None
                 st.success("Zaktualizowano wpis!")
@@ -107,9 +105,6 @@ with tab1:
     
     liczba_serii = st.number_input("Liczba serii", min_value=1, max_value=10, value=3, step=1)
     
-    st.write("---")
-    st.write("**Wprowadź powtórzenia i ciężar dla poszczególnych serii:**")
-    
     serie_dane = []
     cols_input = st.columns(int(liczba_serii))
     for i in range(int(liczba_serii)):
@@ -122,14 +117,7 @@ with tab1:
     if st.button("Zapisz ćwiczenie na siłowni"):
         if cwiczenie.strip():
             db_silownia = load_json(SILOWNIA_FILE, [])
-            if not isinstance(db_silownia, list):
-                db_silownia = []
-                
-            db_silownia.append({
-                "data": str(data_treningu),
-                "cwiczenie": cwiczenie,
-                "serie": serie_dane
-            })
+            db_silownia.append({"data": str(data_treningu), "cwiczenie": cwiczenie, "serie": serie_dane})
             save_json(SILOWNIA_FILE, db_silownia)
             st.success(f"Dodano {cwiczenie} do dziennika!")
             st.rerun()
@@ -143,7 +131,6 @@ with tab1:
             if isinstance(entry, dict) and "serie" in entry:
                 serie_list = entry.get("serie", [])
                 serie_str = ", ".join([f"S{s.get('seria', 1)}: {s.get('powt', 0)}x{s.get('ciezar', 0)}kg" for s in serie_list if isinstance(s, dict)])
-                
                 col_e1, col_e2, col_e3 = st.columns([4, 1, 1])
                 with col_e1:
                     st.markdown(f"- **{entry.get('data', '')}** | **{entry.get('cwiczenie', '')}** $\rightarrow$ {serie_str}")
@@ -158,14 +145,10 @@ with tab1:
                         if st.session_state["edit_idx"] == idx:
                             st.session_state["edit_idx"] = None
                         st.rerun()
-    else:
-        st.info("Brak wpisów w historii siłowni.")
 
 # --- ZAKŁADKA 2: GARMIN ---
 with tab2:
     st.header("Synchronizacja z Garmin Connect")
-    st.info("⚠️ Uwaga: Garmin czasami blokuje zbyt częste próby logowania (błąd 429).")
-    
     with st.form("garmin_form"):
         col_g1, col_g2 = st.columns(2)
         with col_g1:
@@ -176,28 +159,22 @@ with tab2:
 
     if submit_garmin and email and password:
         if Garmin is None:
-            st.error("Biblioteka garminconnect nie jest zainstalowana.")
+            st.error("Brak biblioteki garminconnect.")
         else:
             try:
                 client = Garmin(email, password)
                 client.login()
-                st.success("Połączono z Garmin Connect!")
-                
                 today = date.today()
                 start_date = today - timedelta(days=7)
                 activities = client.get_activities_by_date(start_date.isoformat(), today.isoformat(), "")
-                
                 st.session_state["garmin_client"] = client
                 st.session_state["garmin_activities"] = activities
                 st.success(f"Pobrano {len(activities)} aktywności z ostatnich 7 dni.")
-                
             except Exception as e:
                 st.error(f"Błąd logowania do Garmina: {e}")
 
-    st.subheader("Pobrane treningi z Garmina (Ostatnie 7 dni)")
     garmin_acts = st.session_state.get("garmin_activities", [])
     client = st.session_state.get("garmin_client", None)
-    
     if garmin_acts:
         for idx, act in enumerate(garmin_acts):
             aid = act.get("activityId")
@@ -208,7 +185,6 @@ with tab2:
             ahr = act.get("averageHR", "-")
             mhr = act.get("maxHR", "-")
             kcal = act.get("calories", "-")
-            
             with st.expander(f"📌 {adate} | {aname} ({adist} km, {atime})"):
                 c_a1, c_a2, c_a3 = st.columns(3)
                 with c_a1:
@@ -219,71 +195,39 @@ with tab2:
                     st.metric("Maksymalne Tętno", f"{mhr} bpm")
                 with c_a3:
                     st.metric("Spalone Kalorie", f"{kcal} kcal")
-                    
                 if client and aid:
                     if st.button(f"Pobierz wykresy i okrążenia", key=f"det_{aid}"):
                         try:
                             splits_data = client.get_activity_splits(aid)
+                            lap_list = splits_data.get("lapDTOs", []) if isinstance(splits_data, dict) else (splits_data if isinstance(splits_data, list) else [])
                             laps = []
-                            if isinstance(splits_data, dict):
-                                lap_list = splits_data.get("lapDTOs", [])
-                            elif isinstance(splits_data, list):
-                                lap_list = splits_data
-                            else:
-                                lap_list = []
-                            
                             for i, lap in enumerate(lap_list):
-                                dist_m = lap.get("distance", 0)
-                                dist_km = round(dist_m / 1000, 2)
+                                dist_km = round(lap.get("distance", 0) / 1000, 2)
                                 duration_s = lap.get("duration", 0)
                                 avg_speed = lap.get("averageSpeed", 0)
-                                avg_hr = lap.get("averageHR", 0)
-                                pace_str = m_s_to_pace(avg_speed)
-                                
-                                # Obliczenie wartości tempa w min/km (dla wykresów - sekundy na km)
                                 pace_sec = (1000 / avg_speed) if avg_speed > 0 else 0
-                                
                                 laps.append({
-                                    "Okrążenie": i + 1,
-                                    "Dystans (km)": dist_km,
-                                    "Czas": format_czas(duration_s),
-                                    "Tempo": pace_str,
-                                    "Śr. Tętno": avg_hr,
-                                    "Tempo_sec": pace_sec
+                                    "Okrążenie": i + 1, "Dystans (km)": dist_km,
+                                    "Czas": format_czas(duration_s), "Tempo": m_s_to_pace(avg_speed),
+                                    "Śr. Tętno": lap.get("averageHR", 0), "Tempo_sec": pace_sec
                                 })
-                            
                             if laps:
                                 df_laps = pd.DataFrame(laps)
-                                st.subheader("Tabela okrążeń (Splits)")
                                 st.dataframe(df_laps.drop(columns=["Tempo_sec"]), width="stretch")
-                                
-                                st.subheader("📈 Wykres tętna na okrążeniach")
                                 st.line_chart(df_laps.set_index("Okrążenie")["Śr. Tętno"])
-                                
-                                st.subheader("📈 Wykres tempa na okrążeniach (sek./km)")
                                 st.line_chart(df_laps.set_index("Okrążenie")["Tempo_sec"])
-                            else:
-                                st.info("Brak danych o okrążeniach dla tej aktywności.")
-                                
                         except Exception as ex:
-                            st.error(f"Nie udało się pobrać okrążeń: {ex}")
-    else:
-        st.info("Brak synchronizowanych aktywności. Zaloguj się powyżej.")
+                            st.error(f"Błąd pobierania okrążeń: {ex}")
 
 # --- ZAKŁADKA 3: FITATU ---
 with tab3:
-    st.header("Żywienie, Waga i Kalorie (Fitatu) – Cały tydzień")
-    
+    st.header("Żywienie, Waga i Kalorie (Fitatu)")
     dni_tygodnia = ["Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela"]
     fitatu_db = load_json(FITATU_FILE, {})
-    if not isinstance(fitatu_db, dict):
-        fitatu_db = {}
-        
     updated_fitatu = {}
     for dzien in dni_tygodnia:
         st.subheader(dzien)
         dane_dnia = fitatu_db.get(dzien, {"kcal": 2300, "b": 170, "t": 75, "w": 235, "spalone": 0, "waga": 84.7, "godzina": "07:00"})
-        
         c01, c02, c1, c2, c3, c4, c5 = st.columns(7)
         with c01:
             waga = st.number_input("Waga (kg)", min_value=40.0, max_value=150.0, value=float(dane_dnia.get("waga", 84.7)), step=0.1, key=f"f_waga_{dzien}")
@@ -299,64 +243,81 @@ with tab3:
             w = st.number_input("Węgle (g)", min_value=0, value=int(dane_dnia.get("w", 235)), key=f"f_w_{dzien}")
         with c5:
             spalone = st.number_input("Spalone Kcal", min_value=0, value=int(dane_dnia.get("spalone", 0)), key=f"f_sp_{dzien}")
-            
         updated_fitatu[dzien] = {"waga": waga, "godzina": godzina, "kcal": kcal, "b": b, "t": t, "w": w, "spalone": spalone}
         st.write("---")
-        
     if st.button("Zapisz wszystkie dane Fitatu"):
         save_json(FITATU_FILE, updated_fitatu)
-        st.success("Zapisano dane Fitatu i wagi dla całego tygodnia!")
+        st.success("Zapisano dane Fitatu i wagi!")
 
 # --- ZAKŁADKA 4: GENERATOR RAPORTU ---
 with tab4:
     st.header("Wygeneruj raport tygodniowy")
-    st.write("Kliknij przycisk, skopiuj poniższy tekst i wklej go w zakładce 'Omówienie tygodnia'.")
-    
     if st.button("Generuj Raport"):
         db_silownia = load_json(SILOWNIA_FILE, [])
         fitatu_db = load_json(FITATU_FILE, {})
         garmin_acts = st.session_state.get("garmin_activities", [])
         
-        raport = "=== PODSUMOWANIE TYGODNIA ===\n\n"
-        
-        raport += "1. SIŁOWNIA:\n"
-        if isinstance(db_silownia, list) and db_silownia:
-            for item in db_silownia:
-                if isinstance(item, dict):
-                    serie_list = item.get("serie", [])
-                    serie_str = ", ".join([f"S{s.get('seria', 1)}: {s.get('powt', 0)}x{s.get('ciezar', 0)}kg" for s in serie_list if isinstance(s, dict)])
-                    raport += f"- {item.get('data', '')} | {item.get('cwiczenie', '')}: {serie_str}\n"
-        else:
-            raport += "Brak wpisów z siłowni.\n"
+        raport = "=== PODSUMOWANIE TYGODNIA ===\n\n1. SIŁOWNIA:\n"
+        for item in db_silownia:
+            serie_str = ", ".join([f"S{s.get('seria', 1)}: {s.get('powt', 0)}x{s.get('ciezar', 0)}kg" for s in item.get("serie", [])])
+            raport += f"- {item.get('data')} | {item.get('cwiczenie')}: {serie_str}\n"
             
-        raport += "\n2. GARMIN (Treningi):\n"
-        if garmin_acts:
-            for act in garmin_acts:
-                nazwa = act.get("activityName", "Aktywność")
-                dystans = round(act.get("distance", 0) / 1000, 2)
-                czas_str = format_czas(act.get("duration", 0))
-                hr = act.get("averageHR", "-")
-                max_hr = act.get("maxHR", "-")
-                kal = act.get("calories", "-")
-                raport += f"- {act.get('startTimeLocal', '')[:10]} | {nazwa} | Dystans: {dystans} km | Czas: {czas_str} | Śr HR: {hr} | Maks HR: {max_hr} | Kalorie: {kal}\n"
-        else:
-            raport += "Brak pobranych aktywności z Garmina.\n"
+        raport += "\n2. GARMIN:\n"
+        for act in garmin_acts:
+            raport += f"- {act.get('startTimeLocal', '')[:10]} | {act.get('activityName')} | Dystans: {round(act.get('distance', 0)/1000, 2)} km | Czas: {format_czas(act.get('duration', 0))} | Śr HR: {act.get('averageHR')}\n"
             
         raport += "\n3. FITATU I WAGA:\n"
-        if isinstance(fitatu_db, dict) and fitatu_db:
-            for dzien, d in fitatu_db.items():
-                if isinstance(d, dict):
-                    raport += f"- {dzien}: Waga: {d.get('waga')} kg ({d.get('godzina')}) | {d.get('kcal')} kcal (B: {d.get('b')}g, T: {d.get('t')}g, W: {d.get('w')}g) | Spalone: {d.get('spalone')} kcal\n"
-        else:
-            raport += "Brak wpisów w Fitatu.\n"
+        for dzien, d in fitatu_db.items():
+            raport += f"- {dzien}: Waga: {d.get('waga')} kg | {d.get('kcal')} kcal (B:{d.get('b')}g, T:{d.get('t')}g, W:{d.get('w')}g)\n"
             
-        st.text_area("Gotowy raport (skopiuj całość):", raport, height=300)
+        st.text_area("Skopiuj raport:", raport, height=300)
 
-# --- ZAKŁADKA 5: OMÓWIENIE TYGODNIA ---
+# --- ZAKŁADKA 5: OMÓWIENIE ---
 with tab5:
     st.header("Omówienie i Analiza Tygodnia")
-    st.write("Wklej tutaj wygenerowany raport lub swoje notatki z minionego tygodnia, abyśmy mogli wspólnie przeanalizować postępy i zaplanować kolejny krok.")
+    notatki = st.text_area("Notatki:", height=250)
+
+# --- ZAKŁADKA 6: GEMINI CHAT ---
+with tab6:
+    st.header("🤖 Twój Osobisty Trener (Gemini)")
     
-    notatki = st.text_area("Wklej raport / notatki do omówienia:", height=250)
-    if notatki:
-        st.success("Raport gotowy do omówienia! Wklej go teraz tutaj na czacie, a przeanalizujemy go punkt po punkcie.")
+    gemini_key = st.text_input("Wpisz swój darmowy Klucz API Gemini (z Google AI Studio):", type="password")
+    
+    if gemini_key and genai is not None:
+        genai.configure(api_key=gemini_key)
+        
+        # Używamy modelu flash (szybki i darmowy w limitach)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        if "chat_history" not in st.session_state:
+            st.session_state["chat_history"] = []
+            
+        # Wyświetlanie historii czatu
+        for message in st.session_state["chat_history"]:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+                
+        # Pole wpisywania wiadomości
+        if user_prompt := st.chat_input("Napisz do swojego trenera..."):
+            st.session_state["chat_history"].append({"role": "user", "content": user_prompt})
+            with st.chat_message("user"):
+                st.markdown(user_prompt)
+                
+            with st.chat_message("assistant"):
+                with st.spinner("Trener analizuje..."):
+                    try:
+                        # Możemy dokleić automatyczny kontekst z bazy aplikacji, żeby Gemini wiedział wszystko!
+                        db_s = load_json(SILOWNIA_FILE, [])
+                        db_f = load_json(FITATU_FILE, {})
+                        context_str = f"Oto aktualny stan danych użytkownika: Siłownia wpisy: {len(db_s)} treningów. Fitatu wpisy z wagi/diety dla dni: {list(db_f.keys())}."
+                        
+                        full_prompt = f"{context_str}\n\nPytanie użytkownika: {user_prompt}"
+                        response = model.generate_content(full_prompt)
+                        bot_reply = response.text
+                        
+                        st.markdown(bot_reply)
+                        st.session_state["chat_history"].append({"role": "assistant", "content": bot_reply})
+                    except Exception as e:
+                        st.error(f"Błąd generowania odpowiedzi przez Gemini: {e}")
+    else:
+        st.info("💡 Aby aktywować czat, wprowadź swój klucz API. Możesz go uzyskać całkowicie za darmo w kilka sekund na stronie [Google AI Studio](https://aistudio.google.com/).")

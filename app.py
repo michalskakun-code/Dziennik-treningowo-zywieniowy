@@ -287,7 +287,8 @@ with tab6:
     
     if gemini_key and genai is not None:
         genai.configure(api_key=gemini_key)
-        model = genai.GenerativeModel('gemini-1.5-pro')
+        # Używamy uniwersalnego modelu gemini-pro w pełni wspieranego w darmowym planie
+        model = genai.GenerativeModel('gemini-pro')
         
         if "chat_history" not in st.session_state:
             st.session_state["chat_history"] = []
@@ -305,7 +306,7 @@ with tab6:
                 with st.spinner("Trener analizuje..."):
                     try:
                         db_s = load_json(SILOWNIA_FILE, [])
-                        db_f = load_json(FITATU_FILE, {})
+                        db_f = load_json(FITATU_FILE, [])
                         context_str = f"Oto aktualny stan danych użytkownika w dzienniku: Siłownia wpisy: {len(db_s)} treningów. Fitatu wpisy z wagi/diety dla dni: {list(db_f.keys())}."
                         
                         full_prompt = f"{context_str}\n\nPytanie użytkownika: {user_prompt}"

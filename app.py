@@ -288,10 +288,51 @@ with tab5:
 with tab6:
     st.header("🤖 Twój Osobisty Trener (Gemini)")
     
-    gemini_key = st.text_input("Wpisz swój darmowy Klucz API Gemini (z Google AI Studio):", type="password")
+    gemini_key = st.text_input("Wpisz swój darmowy Klucz API Gemini (z Google AI Studio):", type="password", key="gemini_api_input")
     
     if gemini_key and genai is not None:
-        genai.configure(api_key=gemini_key)
-        
-        # Użycie najnowszego stabilnego modelu sugerowanego przez API
-        model = genai.GenerativeModel('gemini-3.8-flash')
+        try:
+            genai.configure(api_key=gemini_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+        except Exception as e:
+            st.error(f"Błąd inicjalizacji klucza API: {e}")
+            model = None
+            
+        if "chat_history" not in st.session_state:
+            st.session_state["chat_history"] = []
+            
+        # Wyświetlanie historii czatu
+        for message in st.session_state["chat_history"]:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+                    
+        # Stabilne pole tekstowe z przyciskiem zamiast znikającego chat_input
+        with st.form(key="gemini_chat_form", clear_on_submit=True):
+            user_prompt = st.text_input("Napisz wiadomość do swojego trenera...")
+            submit_prompt = st.form_submit_button("Wyślij wiadomość")
+            
+        if submit_prompt and user_prompt and model:
+            st.session_state["chat_history"].append({"role": "user", "content": user_prompt})
+            
+            with st.spinner("Trener analizuje dane i pisze odpowiedź..."):
+                try:
+                    db_s = load_json(SILOWNIA_FILE, [])
+                    db_f = load_json(FITATU_FILE, [])
+                    
+                    if isinstance(db_f, dict):
+                        fitatu_info = f"wpisy dla dni: {list(db_f.keys())}"
+                    else:
+                        fitatu_info = "brak struktury słownika"
+                        
+                    context_str = f"Oto aktualny stan danych użytkownika w dzienniku: Siłownia wpisy: {len(db_s)} treningów. Fitatu {fitatu_info}."
+                    full_prompt = f"{context_str}\n\nPytanie użytkownika: {user_prompt}"
+                    
+                    response = model.generate_content(full_prompt)
+                    bot_reply = response.text
+                    
+                    st.session_state["chat_history"].append({"role": "assistant", "content": bot_reply})
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Błąd generowania odpowiedzi przez Gemini: {e}")
+    else:
+        st.info("💡 Wprowadź swój darmowy klucz API w polu powyżej, aby aktywować wbudowany czat z trenerem.")

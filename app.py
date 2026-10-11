@@ -18,6 +18,8 @@ st.set_page_config(page_title="Dziennik Treningowy - Kraków 2027", layout="wide
 
 SILOWNIA_FILE = "silownia_db.json"
 FITATU_FILE = "fitatu_db.json"
+FIT_FILE = FITATU_FILE
+FITAT_FILE = FITATU_FILE
 
 def load_json(filepath, default_val):
     if os.path.exists(filepath):
@@ -223,7 +225,7 @@ with tab2:
 with tab3:
     st.header("Żywienie, Waga i Kalorie (Fitatu)")
     dni_tygodnia = ["Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela"]
-    fitatu_db = load_json(FITAT_FILE, {})
+    fitatu_db = load_json(FITATU_FILE, {})
     updated_fitatu = {}
     for dzien in dni_tygodnia:
         st.subheader(dzien)
@@ -285,8 +287,6 @@ with tab6:
     
     if gemini_key and genai is not None:
         genai.configure(api_key=gemini_key)
-        
-        # Zmieniono nazwę na model kompatybilny z v1 / najnowszymi endpointami
         model = genai.GenerativeModel('gemini-1.5-pro')
         
         if "chat_history" not in st.session_state:
@@ -295,12 +295,12 @@ with tab6:
         for message in st.session_state["chat_history"]:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
-                
+                    
         if user_prompt := st.chat_input("Napisz do swojego trenera..."):
             st.session_state["chat_history"].append({"role": "user", "content": user_prompt})
             with st.chat_message("user"):
                 st.markdown(user_prompt)
-                
+                    
             with st.chat_message("assistant"):
                 with st.spinner("Trener analizuje..."):
                     try:

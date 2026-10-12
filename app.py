@@ -9,11 +9,6 @@ try:
 except ImportError:
     Garmin = None
 
-try:
-    import openai
-except ImportError:
-    openai = None
-
 st.set_page_config(page_title="Dziennik Treningowy - Kraków 2027", layout="wide")
 
 SILOWNIA_FILE = "silownia_db.json"
@@ -57,7 +52,7 @@ def m_s_to_pace(m_s):
 
 st.title("🏃‍♂️ Dziennik Treningowy: Droga do Maratonu w Krakowie")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏋️‍♂️ Siłownia", "Garmin", "🥗 Fitatu", "📋 Generator Raportu", "📊 Omówienie", "🤖 ChatGPT"])
+tab1, tab2, tab3, tab4 = st.tabs(["🏋️‍♂️ Siłownia", "Garmin", "🥗 Fitatu", "📋 Generator Raportu"])
 
 # --- ZAKŁADKA 1: SIŁOWNIA ---
 with tab1:
@@ -256,6 +251,7 @@ with tab3:
 # --- ZAKŁADKA 4: GENERATOR RAPORTU ---
 with tab4:
     st.header("Wygeneruj raport tygodniowy")
+    st.info("💡 Kliknij poniższy przycisk, skopiuj wygenerowany tekst i wklej go tutaj na czacie, aby przeprowadzić analizę treningową.")
     if st.button("Generuj Raport"):
         db_silownia = load_json(SILOWNIA_FILE, [])
         fitatu_db = load_json(FITATU_FILE, {})
@@ -278,63 +274,3 @@ with tab4:
                     raport += f"- {dzien}: Waga: {d.get('waga')} kg | {d.get('kcal')} kcal (B:{d.get('b')}g, T:{d.get('t')}g, W:{d.get('w')}g)\n"
             
         st.text_area("Skopiuj raport:", raport, height=300)
-
-# --- ZAKŁADKA 5: OMÓWIENIE ---
-with tab5:
-    st.header("Omówienie i Analiza Tygodnia")
-    notatki = st.text_area("Notatki:", height=250)
-
-# --- ZAKŁADKA 6: CHATGPT ---
-with tab6:
-    st.header("🤖 Twój Osobisty Trener (ChatGPT)")
-    
-    openai_key = st.text_input("Wpisz swój Klucz API OpenAI (ChatGPT):", type="password", key="openai_api_input")
-    
-    if "chat_history" not in st.session_state:
-        st.session_state["chat_history"] = []
-        
-    for message in st.session_state["chat_history"]:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-            
-    if openai_key and openai is not None:
-        try:
-            client = openai.OpenAI(api_key=openai_key)
-            
-            with st.form(key="chatgpt_form", clear_on_submit=True):
-                user_prompt = st.text_input("Napisz wiadomość do swojego trenera...")
-                submit_prompt = st.form_submit_button("Wyślij wiadomość")
-                
-            if submit_prompt and user_prompt:
-                st.session_state["chat_history"].append({"role": "user", "content": user_prompt})
-                
-                with st.spinner("ChatGPT analizuje dane i pisze odpowiedź..."):
-                    db_s = load_json(SILOWNIA_FILE, [])
-                    db_f = load_json(FITATU_FILE, [])
-                    
-                    if isinstance(db_f, dict):
-                        fitatu_info = f"wpisy dla dni: {list(db_f.keys())}"
-                    else:
-                        fitatu_info = "brak struktury słownika"
-                        
-                    context_str = f"Oto aktualny stan danych użytkownika w dzienniku: Siłownia wpisy: {len(db_s)} treningów. Fitatu {fitatu_info}."
-                    
-                    # Budowanie wiadomości dla OpenAI
-                    messages_payload = [{"role": "system", "content": f"Jesteś profesjonalnym trenerem biegowym przygotowującym użytkownika do sub-4h w Maratonie w Krakowie. {context_str}"}]
-                    
-                    # Dodanie historii konwersacji
-                    for msg in st.session_state["chat_history"]:
-                        messages_payload.append({"role": msg["role"], "content": msg["content"]})
-                        
-                    response = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=messages_payload
-                    )
-                    
-                    bot_reply = response.choices[0].message.content
-                    st.session_state["chat_history"].append({"role": "assistant", "content": bot_reply})
-                    st.rerun()
-        except Exception as e:
-            st.error(f"Błąd OpenAI API: {e}")
-    else:
-        st.info("💡 Wprowadź swój klucz API OpenAI w polu powyżej, aby odblokować czat z trenerem.")

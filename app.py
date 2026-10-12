@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 import json
 import os
 
@@ -14,6 +14,9 @@ st.set_page_config(page_title="Dziennik Treningowy - Kraków 2027", layout="wide
 SILOWNIA_FILE = "silownia_db.json"
 FITATU_FILE = "fitatu_db.json"
 DNI_TYGODNIA = ["Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela"]
+
+def get_dzien_pl(date_obj):
+    return DNI_TYGODNIA[date_obj.weekday()]
 
 def load_json(filepath, default_val):
     if os.path.exists(filepath):
@@ -67,14 +70,7 @@ with tab1:
         st.info(f"Edytujesz wpis z dnia: {db_silownia[editing_index].get('data')}")
         item_to_edit = db_silownia[editing_index]
         
-        old_dzien = item_to_edit.get("dzien_tygodnia", "Poniedziałek")
-        try:
-            default_idx = DNI_TYGODNIA.index(old_dzien)
-        except ValueError:
-            default_idx = 0
-
         ed_data = st.date_input("Data (edycja)", value=date.fromisoformat(item_to_edit.get("data", str(date.today()))), key="ed_data")
-        ed_dzien = st.selectbox("Dzień tygodnia (edycja)", DNI_TYGODNIA, index=default_idx, key="ed_dzien")
         ed_cwiczenie = st.text_input("Nazwa ćwiczenia (edycja)", value=item_to_edit.get("cwiczenie", ""), key="ed_cw")
         
         ed_serie = []
@@ -90,7 +86,7 @@ with tab1:
         col_act1, col_act2 = st.columns(2)
         with col_act1:
             if st.button("Zapisz zmiany"):
-                db_silownia[editing_index] = {"data": str(ed_data), "dzien_tygodnia": ed_dzien, "cwiczenie": ed_cwiczenie, "serie": ed_serie}
+                db_silownia[editing_index] = {"data": str(ed_data), "cwiczenie": ed_cwiczenie, "serie": ed_serie}
                 save_json(SILOWNIA_FILE, db_silownia)
                 st.session_state["edit_idx"] = None
                 st.success("Zaktualizowano wpis!")
@@ -101,11 +97,9 @@ with tab1:
                 st.rerun()
         st.write("---")
 
-    col_d, col_w, col_c = st.columns(3)
+    col_d, col_c = st.columns(2)
     with col_d:
         data_treningu = st.date_input("Data treningu", date.today())
-    with col_w:
-        dzien_tygodnia_sil = st.selectbox("Dzień tygodnia", DNI_TYGODNIA)
     with col_c:
         cwiczenie = st.text_input("Nazwa ćwiczenia (np. Przysiad ze sztangą)")
     
@@ -123,7 +117,7 @@ with tab1:
     if st.button("Zapisz ćwiczenie na siłowni"):
         if cwiczenie.strip():
             db_silownia = load_json(SILOWNIA_FILE, [])
-            db_silownia.append({"data": str(data_treningu), "dzien_tygodnia": dzien_tygodnia_sil, "cwiczenie": cwiczenie, "serie": serie_dane})
+            db_silownia.append({"data": str(data_treningu), "cwiczenie": cwiczenie, "serie": serie_dane})
             save_json(SILOWNIA_FILE, db_silownia)
             st.success(f"Dodano {cwiczenie} do dziennika!")
             st.rerun()
@@ -131,13 +125,22 @@ with tab1:
             st.warning("Wpisz nazwę ćwiczenia.")
 
     st.subheader("Historia i zarządzanie treningami siłowymi")
+    hist_date = st.date_input("Wybierz dzień do wyświetlenia historii:", date.today(), key="hist_date_picker")
+    
     db_silownia = load_json(SILOWNIA_FILE, [])
     if isinstance(db_silownia, list) and db_silownia:
-        for idx, entry in enumerate(db_silownia):
-            if isinstance(entry, dict) and "serie" in entry:
+        filtered_entries = [
+            (idx, entry) for idx, entry in enumerate(db_silownia)
+            if isinstance(entry, dict) and entry.get("data") == str(hist_date)
+        ]
+        
+        if filtered_entries:
+            for idx, entry in filtered_entries:
+                dt = datetime.fromisoformat(entry.get("data")).date()
+                d_info = f"[{get_dzien_pl(dt)}]"
                 serie_list = entry.get("serie", [])
                 serie_str = ", ".join([f"S{s.get('seria', 1)}: {s.get('powt', 0)}x{s.get('ciezar', 0)}kg" for s in serie_list if isinstance(s, dict)])
-                d_info = f"[{entry.get('dzien_tygodnia', '')}]" if entry.get('dzien_tygodnia') else ""
+                
                 col_e1, col_e2, col_e3 = st.columns([4, 1, 1])
                 with col_e1:
                     st.markdown(f"- **{entry.get('data', '')}** {d_info} | **{entry.get('cwiczenie', '')}** $\rightarrow$ {serie_str}")
@@ -152,6 +155,10 @@ with tab1:
                         if st.session_state["edit_idx"] == idx:
                             st.session_state["edit_idx"] = None
                         st.rerun()
+        else:
+            st.info(f"Brak wpisów siłowych dla dnia: {hist_date}")
+    else:
+        st.info("Brak wpisów w historii siłowni.")
 
 # --- ZAKŁADKA 2: GARMIN ---
 with tab2:
@@ -281,7 +288,8 @@ with tab4:
         raport = "=== PODSUMOWANIE TYGODNIA ===\n\n1. SIŁOWNIA:\n"
         if isinstance(db_silownia, list):
             for item in db_silownia:
-                d_info = f" [{item.get('dzien_tygodnia')}]" if item.get('dzien_tygodnia') else ""
+                dt = datetime.fromisoformat(item.get("data")).date()
+                d_info = f" [{get_dzien_pl(dt)}]"
                 serie_str = ", ".join([f"S{s.get('seria', 1)}: {s.get('powt', 0)}x{s.get('ciezar', 0)}kg" for s in item.get("serie", [])])
                 raport += f"- {item.get('data')}{d_info} | {item.get('cwiczenie')}: {serie_str}\n"
             

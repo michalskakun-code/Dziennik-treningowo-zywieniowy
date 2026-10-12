@@ -13,6 +13,7 @@ st.set_page_config(page_title="Dziennik Treningowy - Kraków 2027", layout="wide
 
 SILOWNIA_FILE = "silownia_db.json"
 FITATU_FILE = "fitatu_db.json"
+DNI_TYGODNIA = ["Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela"]
 
 def load_json(filepath, default_val):
     if os.path.exists(filepath):
@@ -65,7 +66,15 @@ with tab1:
     if editing_index is not None and 0 <= editing_index < len(db_silownia):
         st.info(f"Edytujesz wpis z dnia: {db_silownia[editing_index].get('data')}")
         item_to_edit = db_silownia[editing_index]
+        
+        old_dzien = item_to_edit.get("dzien_tygodnia", "Poniedziałek")
+        try:
+            default_idx = DNI_TYGODNIA.index(old_dzien)
+        except ValueError:
+            default_idx = 0
+
         ed_data = st.date_input("Data (edycja)", value=date.fromisoformat(item_to_edit.get("data", str(date.today()))), key="ed_data")
+        ed_dzien = st.selectbox("Dzień tygodnia (edycja)", DNI_TYGODNIA, index=default_idx, key="ed_dzien")
         ed_cwiczenie = st.text_input("Nazwa ćwiczenia (edycja)", value=item_to_edit.get("cwiczenie", ""), key="ed_cw")
         
         ed_serie = []
@@ -81,7 +90,7 @@ with tab1:
         col_act1, col_act2 = st.columns(2)
         with col_act1:
             if st.button("Zapisz zmiany"):
-                db_silownia[editing_index] = {"data": str(ed_data), "cwiczenie": ed_cwiczenie, "serie": ed_serie}
+                db_silownia[editing_index] = {"data": str(ed_data), "dzien_tygodnia": ed_dzien, "cwiczenie": ed_cwiczenie, "serie": ed_serie}
                 save_json(SILOWNIA_FILE, db_silownia)
                 st.session_state["edit_idx"] = None
                 st.success("Zaktualizowano wpis!")
@@ -92,9 +101,11 @@ with tab1:
                 st.rerun()
         st.write("---")
 
-    col_d, col_c = st.columns(2)
+    col_d, col_w, col_c = st.columns(3)
     with col_d:
         data_treningu = st.date_input("Data treningu", date.today())
+    with col_w:
+        dzien_tygodnia_sil = st.selectbox("Dzień tygodnia", DNI_TYGODNIA)
     with col_c:
         cwiczenie = st.text_input("Nazwa ćwiczenia (np. Przysiad ze sztangą)")
     
@@ -112,7 +123,7 @@ with tab1:
     if st.button("Zapisz ćwiczenie na siłowni"):
         if cwiczenie.strip():
             db_silownia = load_json(SILOWNIA_FILE, [])
-            db_silownia.append({"data": str(data_treningu), "cwiczenie": cwiczenie, "serie": serie_dane})
+            db_silownia.append({"data": str(data_treningu), "dzien_tygodnia": dzien_tygodnia_sil, "cwiczenie": cwiczenie, "serie": serie_dane})
             save_json(SILOWNIA_FILE, db_silownia)
             st.success(f"Dodano {cwiczenie} do dziennika!")
             st.rerun()
@@ -126,9 +137,10 @@ with tab1:
             if isinstance(entry, dict) and "serie" in entry:
                 serie_list = entry.get("serie", [])
                 serie_str = ", ".join([f"S{s.get('seria', 1)}: {s.get('powt', 0)}x{s.get('ciezar', 0)}kg" for s in serie_list if isinstance(s, dict)])
+                d_info = f"[{entry.get('dzien_tygodnia', '')}]" if entry.get('dzien_tygodnia') else ""
                 col_e1, col_e2, col_e3 = st.columns([4, 1, 1])
                 with col_e1:
-                    st.markdown(f"- **{entry.get('data', '')}** | **{entry.get('cwiczenie', '')}** $\rightarrow$ {serie_str}")
+                    st.markdown(f"- **{entry.get('data', '')}** {d_info} | **{entry.get('cwiczenie', '')}** $\rightarrow$ {serie_str}")
                 with col_e2:
                     if st.button("Edytuj", key=f"edit_sil_{idx}"):
                         st.session_state["edit_idx"] = idx
@@ -217,16 +229,16 @@ with tab2:
 # --- ZAKŁADKA 3: FITATU ---
 with tab3:
     st.header("Żywienie, Waga i Kalorie (Fitatu)")
-    dni_tygodnia = ["Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela"]
     fitatu_db = load_json(FITATU_FILE, {})
     if not isinstance(fitatu_db, dict):
         fitatu_db = {}
-    updated_fitatu = {}
-    for dzien in dni_tygodnia:
+        
+    for dzien in DNI_TYGODNIA:
         st.subheader(dzien)
         dane_dnia = fitatu_db.get(dzien, {"kcal": 2300, "b": 170, "t": 75, "w": 235, "spalone": 0, "waga": 84.7, "godzina": "07:00"})
         if not isinstance(dane_dnia, dict):
             dane_dnia = {"kcal": 2300, "b": 170, "t": 75, "w": 235, "spalone": 0, "waga": 84.7, "godzina": "07:00"}
+            
         c01, c02, c1, c2, c3, c4, c5 = st.columns(7)
         with c01:
             waga = st.number_input("Waga (kg)", min_value=40.0, max_value=150.0, value=float(dane_dnia.get("waga", 84.7)), step=0.1, key=f"f_waga_{dzien}")
@@ -242,11 +254,20 @@ with tab3:
             w = st.number_input("Węgle (g)", min_value=0, value=int(dane_dnia.get("w", 235)), key=f"f_w_{dzien}")
         with c5:
             spalone = st.number_input("Spalone Kcal", min_value=0, value=int(dane_dnia.get("spalone", 0)), key=f"f_sp_{dzien}")
-        updated_fitatu[dzien] = {"waga": waga, "godzina": godzina, "kcal": kcal, "b": b, "t": t, "w": w, "spalone": spalone}
+            
+        if st.button(f"Zapisz {dzien}", key=f"btn_save_{dzien}"):
+            fitatu_db[dzien] = {
+                "waga": waga,
+                "godzina": godzina,
+                "kcal": kcal,
+                "b": b,
+                "t": t,
+                "w": w,
+                "spalone": spalone
+            }
+            save_json(FITATU_FILE, fitatu_db)
+            st.success(f"Zapisano dane dla: {dzien}!")
         st.write("---")
-    if st.button("Zapisz wszystkie dane Fitatu"):
-        save_json(FITATU_FILE, updated_fitatu)
-        st.success("Zapisano dane Fitatu i wagi!")
 
 # --- ZAKŁADKA 4: GENERATOR RAPORTU ---
 with tab4:
@@ -260,8 +281,9 @@ with tab4:
         raport = "=== PODSUMOWANIE TYGODNIA ===\n\n1. SIŁOWNIA:\n"
         if isinstance(db_silownia, list):
             for item in db_silownia:
+                d_info = f" [{item.get('dzien_tygodnia')}]" if item.get('dzien_tygodnia') else ""
                 serie_str = ", ".join([f"S{s.get('seria', 1)}: {s.get('powt', 0)}x{s.get('ciezar', 0)}kg" for s in item.get("serie", [])])
-                raport += f"- {item.get('data')} | {item.get('cwiczenie')}: {serie_str}\n"
+                raport += f"- {item.get('data')}{d_info} | {item.get('cwiczenie')}: {serie_str}\n"
             
         raport += "\n2. GARMIN:\n"
         for act in garmin_acts:

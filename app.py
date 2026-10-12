@@ -293,25 +293,21 @@ with tab6:
     if gemini_key and genai is not None:
         try:
             genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
         except Exception as e:
             st.error(f"Błąd inicjalizacji klucza API: {e}")
-            model = None
             
         if "chat_history" not in st.session_state:
             st.session_state["chat_history"] = []
             
-        # Wyświetlanie historii czatu
         for message in st.session_state["chat_history"]:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
                     
-        # Stabilne pole tekstowe z przyciskiem zamiast znikającego chat_input
         with st.form(key="gemini_chat_form", clear_on_submit=True):
             user_prompt = st.text_input("Napisz wiadomość do swojego trenera...")
             submit_prompt = st.form_submit_button("Wyślij wiadomość")
             
-        if submit_prompt and user_prompt and model:
+        if submit_prompt and user_prompt:
             st.session_state["chat_history"].append({"role": "user", "content": user_prompt})
             
             with st.spinner("Trener analizuje dane i pisze odpowiedź..."):
@@ -327,8 +323,25 @@ with tab6:
                     context_str = f"Oto aktualny stan danych użytkownika w dzienniku: Siłownia wpisy: {len(db_s)} treningów. Fitatu {fitatu_info}."
                     full_prompt = f"{context_str}\n\nPytanie użytkownika: {user_prompt}"
                     
-                    response = model.generate_content(full_prompt)
-                    bot_reply = response.text
+                    # Automatyczny mechanizm zapasowy (fallback) sprawdzający modele po kolei
+                    models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-1.0-pro']
+                    response = None
+                    last_error = None
+                    
+                    for m_name in models_to_try:
+                        try:
+                            model = genai.GenerativeModel(m_name)
+                            response = model.generate_content(full_prompt)
+                            if response and response.text:
+                                break
+                        except Exception as ex:
+                            last_error = ex
+                            continue
+                            
+                    if response and response.text:
+                        bot_reply = response.text
+                    else:
+                        raise Exception(f"Brak połączenia z modelami. Szczegóły: {last_error}")
                     
                     st.session_state["chat_history"].append({"role": "assistant", "content": bot_reply})
                     st.rerun()
